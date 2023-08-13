@@ -1,0 +1,477 @@
+[gd_scene load_steps=2 format=3 uid="uid://bcox4l0k4scck"]
+
+[sub_resource type="GDScript" id="GDScript_cm2iv"]
+resource_name = "Script"
+script/source = "extends Control
+
+@export_range(510,1000000) var index_scale:int = 512
+@export var lua_script_mode:bool = true
+@export var contain_poll_progress:bool = true
+@export_range(1,16) var init_z_index:int = 1
+
+class DRNote:
+	extends RefCounted
+	var id:int
+	var type:int
+	var bartime:float
+	var pos:float
+	var width:float
+	var nscrate:float
+	var parent_id:int
+	func _init(p1:int, p2:int, p3:float, p4:float, p5:float, p6:float, p7:int):
+		id = p1
+		type = p2
+		bartime = p3
+		pos = p4
+		width = p5
+		nscrate = p6
+		parent_id = p7
+	func noteinfo():
+		var p:Array = [id,type,bartime,pos,width,nscrate,parent_id]
+		return \"ID = %s \\nType = %s \\nBar Time = %s \\nPosition = %s \\nWidth = %s \\nNSC Rate = %s \\nParent ID = %s\" % p
+
+static func sort_xyt(A:Array,B:Array) -> bool:
+	if A[2] <= B[2] : return true
+	else: return false
+
+static func sort_group(A:Array,B:Array) -> bool:
+	# A:[Z, [1stX,1stY,1stT], ...]
+	if A[1][2] < B[1][2] : return true
+	elif A[1][2] == B[1][2] :
+		if A[0] < B[0] : return true
+		elif A[0] == B[0] :
+			if abs(8-A[1][0])*(8-A[1][1]) < abs(8-B[1][0])*(8-B[1][1]): return false
+			else: return true
+		else: return false
+	else: return false
+
+const v3str:String = \"v(%s,%s,%s,0)\"
+const v4str:String = \"v(%s,%s,%s,1)\"
+const luahead:String = \"local t=vmath.vector3\\nlocal v=vmath.vector4\\nlocal e={}\\nlocal f=\"
+const luatail:String = \"\\nreturn f\"
+const GNreport:String = \"Contains %s elements in the Index.\"
+
+###################
+
+func generate():
+	if %Input.text == \"\": return
+	var shell:PackedStringArray = %Input.text.split(\"\\n\")
+
+	# 开头切分
+	var begin:Array = []
+	for i in shell:
+		if i.begins_with(\"<\"): break
+		i = i.replace(\"=\",\"[\")
+		i = i.replace(\";\",\"[\")
+		begin.append( i.split(\"[\",false) )
+
+	# 解析Offset
+	var offset = begin[0][1].to_float()
+	# print(offset)
+
+	# 解析BPM
+	var bpm_value:Array = []
+	var bpm_pos:Array = []
+	for i in begin:
+		if i[0] == \"#BPM\" or i[0] == \"#BPM \":
+			bpm_value.append( i[2].to_float() )
+		if i[0] == \"#BPMS\":
+			bpm_pos.append( i[2].to_float() )
+	# print(bpm_pos)
+	# print(bpm_value)
+
+	# 这次只使用一个BPM好了
+	var bpm_urai:float = bpm_value[0]
+
+	# 解析SC（用不到）
+	# var scs:Array
+	# for i in begin:
+	# 	if i[0] == \"#SC \" or i[0] == \"#SCI\":
+	# 		scs.append( i[2].to_float() )
+	# print(scs)
+
+	# 主体切分
+	var array1:Array[DRNote] = []
+	for i in shell:
+		if i.begins_with(\"<\"):
+			i = i.replace(\">\",\"\")
+			var line = i.split_floats(\"<\",false)
+			var new_drnote = DRNote.new(
+				line[0],
+				line[1],
+				line[2],
+				line[3],
+				line[4],
+				line[5],
+				line[6]
+				)
+			array1.append( new_drnote )
+	# print(array1[0].noteinfo())
+
+	var result:Dictionary = {
+		Aerials = \"Arf\",
+		Info = {
+			Traits = \"\",
+			Madeby = \"··|··  Inherited from Project Solace\",
+			Init = 0,
+			End = 0,
+			Hints = 0
+		},
+		Wish = [],
+		Hint = [],
+		Index = {
+			Scale = index_scale,
+			Wish = [],
+			Hint = [],
+			Wgo = [],
+			Hgo = [],
+			Ago = [],
+			Vecs = [] 
+		}
+	}
+
+	for note in array1:
+		
+		
+		# 追加Wish Group
+		match note.type:
+			1:  #下落Tap
+				result.Wish.append(
+					# Group1
+					[init_z_index+0.1,
+						# x,y,t
+						[note.pos+1, 7, (note.bartime-0.375)*240000/bpm_urai + offset*1000],
+						[note.pos+1, 1, (note.bartime)*240000/bpm_urai + offset*1000]
+					]
+				)
+				result.Wish.append(
+					# Group2
+					[init_z_index,
+						# x,y,t
+						[note.pos+1, 1, (note.bartime-0.375)*240000/bpm_urai + offset*1000],
+						[note.pos+1, 1, (note.bartime)*240000/bpm_urai + offset*1000],
+						[note.pos+1, 1, (note.bartime+0.0625)*240000/bpm_urai + offset*1000]
+					]
+				)
+
+
+			2:   #中轴线Tap
+				result.Wish.append(
+					# Group1
+					[init_z_index+0.1,
+						# x,y,t
+						[2, note.pos-3, (note.bartime-0.375)*240000/bpm_urai + offset*1000],
+						[8, note.pos-3, (note.bartime)*240000/bpm_urai + offset*1000]
+					]
+				)
+				result.Wish.append(
+					# Group2
+					[init_z_index+0.1,
+						# x,y,t
+						[14, note.pos-3, (note.bartime-0.375)*240000/bpm_urai + offset*1000],
+						[8, note.pos-3, (note.bartime)*240000/bpm_urai + offset*1000]
+					]
+				)
+
+
+			3:  #停留一个4分长度
+				result.Wish.append(
+					# Group
+					[init_z_index,
+						# x,y,t
+						[note.pos+1, 1, (note.bartime)*240000/bpm_urai + offset*1000],
+						[note.pos+1, 1, (note.bartime+0.25)*240000/bpm_urai + offset*1000]
+					]
+				)
+
+
+			5:  #停留一个8分长度
+				result.Wish.append(
+					# Group
+					[init_z_index,
+						# x,y,t
+						[note.pos+1, 1, (note.bartime)*240000/bpm_urai + offset*1000],
+						[note.pos+1, 1, (note.bartime+0.125)*240000/bpm_urai + offset*1000]
+					]
+				)
+
+
+			13:  #扫至最左侧
+				result.Wish.append(
+					# Group
+					[init_z_index,
+						# x,y,t
+						[note.pos+1, 1, (note.bartime)*240000/bpm_urai + offset*1000],
+						[3, 1, (note.bartime+0.125)*240000/bpm_urai + offset*1000]
+					]
+				)
+
+			14:  #扫至最左侧
+				result.Wish.append(
+					# Group
+					[init_z_index,
+						# x,y,t
+						[note.pos+1, 1, (note.bartime)*240000/bpm_urai + offset*1000],
+						[13, 1, (note.bartime+0.125)*240000/bpm_urai + offset*1000]
+					]
+				)
+
+			15:  #5to8
+				result.Wish.append(
+					# Group
+					[init_z_index,
+						# x,y,t
+						[note.pos+1, 5, (note.bartime)*240000/bpm_urai + offset*1000],
+						[note.pos+1, 8, (note.bartime+0.125)*240000/bpm_urai + offset*1000]
+					]
+				)
+
+			16:  #3to6
+				result.Wish.append(
+					# Group
+					[init_z_index,
+						# x,y,t
+						[note.pos+1, 3, (note.bartime)*240000/bpm_urai + offset*1000],
+						[note.pos+1, 6, (note.bartime+0.125)*240000/bpm_urai + offset*1000]
+					]
+				)
+				
+				
+		# 追加Hint
+		match note.type:
+			1:  #下落Tap
+				result.Hint.append(
+					# x,y,t
+					[note.pos+1, 1, (note.bartime)*240000/bpm_urai + offset*1000]
+				)
+			2:  #中轴线Tap
+				result.Hint.append(
+					[8, note.pos-3, (note.bartime)*240000/bpm_urai + offset*1000]
+				)
+	
+	# 禁止空谱面
+	### 后续会考虑无Hint的场合
+	if result.Wish.size() == 0: return
+	
+	# 时间整数化
+	for group in result.Wish:
+		for xytid in range(1,group.size()): group[xytid][2] = int( group[xytid][2] )
+	for xyt in result.Hint: xyt[2] = int(xyt[2])
+	
+	# 排序
+	result.Wish.sort_custom(sort_group)
+	result.Hint.sort_custom(sort_xyt)
+	
+	# 统计Note数
+	result.Info.Hints = result.Hint.size()
+	print(\"%s Wishes included.\" % result.Wish.size() )
+	
+	var vecnum:int = 0
+	for group in result.Wish: vecnum += group.size()
+	vecnum += result.Info.Hints
+	print(\"%s Vectors included.\" % vecnum)
+	
+	# 建立分组索引
+	# 1.求最大时间及分组组数
+	var mint:int = result.Wish[0][2][2]
+	var maxt:int = 0
+	for group in result.Wish:
+		for xytid in range(1,group.size()):
+			if group[xytid][2]>maxt: maxt=group[xytid][2]
+			if group[xytid][2]<mint: mint=group[xytid][2]
+	for xyt in result.Hint:
+		if xyt[2]>maxt: maxt=xyt[2]
+		if xyt[2]<mint: mint=xyt[2]
+	result.Info.Init = mint
+	result.Info.End = maxt + (index_scale-1) #多留出一个Index Scale的时间，确保最后一个Note播完击中动画
+	@warning_ignore(\"integer_division\")
+	var group_amount:int = maxt/index_scale + 1
+	# 2.建立Array
+	var index_array_wish := []
+	var index_array_hint := []
+	for _i in range(group_amount):
+		index_array_wish.append([])
+		index_array_hint.append([])
+	print(maxt)
+	print(index_array_wish.size())
+	# 3.发送分组情报
+	for groupid in range(result.Wish.size()):
+		# Bugfix: 相邻Vector不在同一索引组/相邻索引组，中间的索引组漏追加
+#		for xyt in result.Wish[groupid]:
+#			@warning_ignore(\"integer_division\")
+#			var indexid = int(xyt[2]) / index_scale
+#			if indexid < 0: indexid = 0
+#
+#			if not groupid + 1 in index_array_wish[indexid]:
+#				index_array_wish[indexid].append( groupid + 1 )
+		# 复用时可能要加入内层Array的守护代码
+		for id_xyt in range(1,result.Wish[groupid].size()):
+			if id_xyt+1 == result.Wish[groupid].size(): #对Group内的最后一个Vector
+				@warning_ignore(\"integer_division\")
+				var indexid = int(result.Wish[groupid][id_xyt][2]) / index_scale
+				if indexid < 0: indexid = 0
+				if not groupid + 1 in index_array_wish[indexid]:
+					index_array_wish[indexid].append( groupid + 1 )
+			else:
+				# 当前Vector所在分组的编号
+				@warning_ignore(\"integer_division\")
+				var indexid_h = int(result.Wish[groupid][id_xyt][2]) / index_scale
+				if indexid_h < 0: indexid_h = 0
+				# 下一Vector所在分组的编号
+				@warning_ignore(\"integer_division\")
+				var indexid_t = int(result.Wish[groupid][id_xyt+1][2]) / index_scale
+				if indexid_t < 0: indexid_t = 0
+				# 同编号
+				if indexid_h == indexid_t:
+					if not groupid + 1 in index_array_wish[indexid_h]:
+						index_array_wish[indexid_h].append( groupid + 1 )
+				# 异编号
+				else:
+					# 注意for in range是左闭右开
+					for indexid in range(indexid_h, indexid_t+1 ):
+						if not groupid + 1 in index_array_wish[indexid]:
+							index_array_wish[indexid].append( groupid + 1 )
+	# 简单说明一下：
+	# Wish无判定，每帧只轮询一个索引组
+	# Hint要考虑Note被判定的情况，每帧轮询三个索引组
+	for xytid in range(result.Hint.size()):
+		@warning_ignore(\"integer_division\")
+		var indexid = int(result.Hint[xytid][2]) / index_scale
+		if indexid < 0: indexid = 0
+		if not xytid+1 in index_array_hint[indexid]:
+			index_array_hint[indexid].append( xytid+1 )
+			
+	# 4.排序、求索引组的最大Size
+	var size_tot:int = 0
+	var wish_index_group_maxsize:int = 0
+	for index_group in index_array_wish:
+		index_group.sort()
+		size_tot += index_group.size()
+		if index_group.size() > wish_index_group_maxsize: wish_index_group_maxsize = index_group.size()
+	print(\"Wish Indexes:\")
+	print(size_tot)
+	
+	var size_wishindex:int = size_tot
+	
+	var hint_index_group_maxsize:int = 0
+	if group_amount == 1:
+		hint_index_group_maxsize = index_array_hint[0].size()
+		index_array_hint[0].sort()
+		size_tot += hint_index_group_maxsize
+	elif group_amount == 2:
+		hint_index_group_maxsize = index_array_hint[0].size() + index_array_hint[1].size()
+		index_array_hint[0].sort()
+		index_array_hint[1].sort()
+		size_tot += hint_index_group_maxsize
+	else:
+		for index_group_id in range(group_amount):
+			index_array_hint[index_group_id].sort()
+			size_tot += index_array_hint[index_group_id].size()
+			
+			var scale_size:int = 0
+			if index_group_id == 0:
+				scale_size = index_array_hint[0].size() + index_array_hint[1].size()
+			elif index_group_id+1 == group_amount:
+				scale_size = index_array_hint[index_group_id-1].size() + index_array_hint[index_group_id].size()
+			else:
+				scale_size += index_array_hint[index_group_id-1].size()
+				scale_size += index_array_hint[index_group_id].size()
+				scale_size += index_array_hint[index_group_id+1].size()
+			
+			if scale_size > hint_index_group_maxsize: hint_index_group_maxsize = scale_size
+		
+	print(\"Hint Indexes:\")
+	print(size_tot - size_wishindex)
+	
+	# 5.链接
+	result.Index.Wish = index_array_wish
+	result.Index.Hint = index_array_hint
+	print(\"Pool size for Wishes is:\")
+	print(wish_index_group_maxsize)
+	print(\"Pool size for Hints is:\")
+	print(hint_index_group_maxsize)
+	result.Index.Wgo.resize(wish_index_group_maxsize)
+	result.Index.Wgo.fill(0)
+	result.Index.Hgo.resize(hint_index_group_maxsize)
+	result.Index.Hgo.fill(0)
+	result.Index.Ago = result.Index.Hgo.duplicate()
+	result.Index.Vecs.resize(max(wish_index_group_maxsize,hint_index_group_maxsize))
+	result.Index.Vecs.fill(\"t()\")
+	
+	# 报告分组索引
+	print( GNreport % size_tot )
+	
+	# Wish添加
+	if contain_poll_progress:
+		for group in result.Wish: group.push_front(3)
+	
+	# 输出
+	if not lua_script_mode:
+		# 输出JSON
+		%Output.text = JSON.stringify(result,\"\",false)
+	else:
+		for group in result.Wish:
+			for i in range(2,group.size()):
+				group[i] = v3str % group[i]
+		for i in range(result.Hint.size()):
+			result.Hint[i] = v4str % result.Hint[i]
+		var output_text:String = JSON.stringify(result,\"\",false)
+		output_text = output_text.replace(\"[\",\"{\")
+		output_text = output_text.replace(\"]\",\"}\")
+		output_text = output_text.replace(\":\",\"=\")
+		output_text = output_text.replace(\"\\\"\",\"\")
+		output_text = output_text.replace(\"{}\",\"e\")
+		output_text = output_text.replace(\"Traits=\",\"Traits=e\")
+		output_text = output_text.replace(\"Madeby=\",\"Madeby=\\\"\\\"\")
+		output_text = output_text.replace(\"Arf\",\"\\\"Arf\\\"\")
+		%Output.text = luahead + output_text + luatail
+"
+
+[node name="Control" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = SubResource("GDScript_cm2iv")
+
+[node name="Input" type="TextEdit" parent="."]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 32.0
+offset_top = 64.0
+offset_right = 752.0
+offset_bottom = 704.0
+placeholder_text = "Input Field
+Generate Aerials Stage with DanceRail3 Fumen Text."
+scroll_smooth = true
+minimap_draw = true
+minimap_width = 40
+
+[node name="Output" type="TextEdit" parent="."]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 784.0
+offset_top = 64.0
+offset_right = 1504.0
+offset_bottom = 704.0
+placeholder_text = "Output Field"
+editable = false
+deselect_on_focus_loss_enabled = false
+virtual_keyboard_enabled = false
+wrap_mode = 1
+scroll_smooth = true
+minimap_draw = true
+minimap_width = 40
+
+[node name="Generate" type="Button" parent="."]
+layout_mode = 0
+offset_left = 700.0
+offset_top = 768.0
+offset_right = 836.0
+offset_bottom = 836.0
+theme_override_font_sizes/font_size = 22
+text = "Generate"
+
+[connection signal="button_up" from="Generate" to="." method="generate"]
